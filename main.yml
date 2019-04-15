@@ -1,0 +1,88 @@
+---
+- set_fact:
+    real_ansible_host: "{{ ansible_host }}"
+
+- name: Install a list of packages
+  apt:
+    name: "{{ packages }}"
+  vars:
+    packages:
+    - curl
+    - tar
+
+- name: Download log2ram archive form github
+  get_url:
+    url: https://github.com/azlux/log2ram/archive/master.tar.gz
+    dest: /usr/local/log2ram.tar.gz
+    mode: 0440
+
+- name: Unarchive a file that is already on the remote machine
+  unarchive:
+    src:  /usr/local/log2ram.tar.gz
+    dest: /usr/local/
+    remote_src: yes
+
+- name: Changing perm of "/usr/local/log2ram-master/install.sh", adding "+x"
+  file: dest=/usr/local/log2ram-master/install.sh mode=a+x
+
+- name: Stop service log2ram, if started
+  command: systemctl stop  log2ram
+  become: true
+  ignore_errors: yes
+
+- name: Run installer Log2ram
+  command: chdir=/usr/local/log2ram-master/ ./install.sh 
+  become: true
+  register: task_result
+
+- name: Move /etc/log2ram.conf /etc/log2ram.conf/bak 
+  command: mv /etc/log2ram.conf /etc/log2ram.conf.bak
+
+- file:
+    path: /etc/log2ram.conf 
+    state: touch
+    mode: "u=rw,g=r,o=r"
+
+- name: Write log2ram configfile 
+  blockinfile:
+    dest: /etc/log2ram.conf
+    block: |
+        SIZE={{ ramdisksize }}
+        USE_RSYNC=false
+        MAIL=false
+        ZL2R=false
+        COMP_ALG=lz4
+        LOG_DISK_SIZE=100M
+
+- file:
+    path: /etc/systemd/journald.conf.d/
+    state: directory
+    mode: 0755
+
+- file:
+    path: /etc/systemd/journald.conf.d/journald.conf
+    state: touch
+    mode: "u=rw,g=r,o=r"
+
+- name: Write journal configfile
+  blockinfile:
+    dest: /etc/systemd/journald.conf.d/journald.conf
+    block: |
+        [Journal]
+        Compress=yes
+        SystemMaxUse={{ ramdisksize }}
+        SystemMaxFileSize=1M
+
+- name: Reboot immediately if there was a change.
+  shell: "sleep 5 && reboot"
+  async: 1
+  poll: 0
+  when: task_result is changed
+
+- name: Wait for the reboot to complete if there was a change.
+  wait_for_connection:
+    connect_timeout: 20
+    sleep: 5
+    delay: 5
+    timeout: 300
+  when: task_result is changed
