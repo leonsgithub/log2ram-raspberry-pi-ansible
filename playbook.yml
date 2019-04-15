@@ -1,0 +1,8 @@
+- name: Ansible Playbook for configuring ramdisk Raspberry Pi
+  hosts: RaspberryPI
+  vars:
+    - ramdisksize: '60M'
+  roles:
+     - sysmgt
+  remote_user: pi
+  become: yes
